@@ -42,7 +42,8 @@ jobs:
           rm -rf quartz/content
           rsync -a --exclude .git --exclude .github --exclude .obsidian --exclude .gitignore vault/ quartz/content/
           cp quartz/content/INDEX.md quartz/content/index.md
-          cp vault/.github/quartz/quartz.config.ts quartz/quartz.config.ts
+          cp vault/.github/quartz/quartz.config.ts vault/.github/quartz/quartz.layout.ts quartz/
+          cp vault/.github/quartz/EditLink.tsx quartz/quartz/components/
 
       - name: Build site
         working-directory: quartz
