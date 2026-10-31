@@ -1,4 +1,4 @@
-"""카드 그림 -> 카드_인쇄.pdf (카드마다 A4 1장, 9장씩), 군사 유닛 -> 군사유닛.pdf.
+"""카드 그림 -> 카드_인쇄.pdf (카드마다 A4 1장, 9장씩), 군사 유닛 -> 군사유닛.pdf (A4 1장에 2팀).
 
 실행: python 카드_만들기.py   (Pillow 필요: pip install pillow)
 """
@@ -25,10 +25,14 @@ SOURCES = [
 ]
 
 # 군사 유닛: 칸 안 색 = 숫자, 테두리 색 = 팀
-VALUES = [(1, "#FFFFFF", 30), (5, "#FFE45C", 20), (10, "#8FD3FF", 15), (50, "#FF9EC8", 10), (100, "#C0C0C0", 5)]
+# (숫자, 안쪽 색, 글자 색, 팀당 개수)
+VALUES = [(1, "#FFFFFF", "black", 40), (5, "#FFE45C", "black", 30), (10, "#8FD3FF", "black", 30),
+          (50, "#FF9EC8", "black", 20), (100, "#C0C0C0", "black", 20), (500, "#A8E6A1", "black", 10),
+          (1000, "#B8860B", "white", 10)]
 TEAMS = [("빨강 팀", "#D62828"), ("파랑 팀", "#1D3FBF"), ("초록 팀", "#1E8C3A"),
          ("검정 팀", "#111111"), ("주황 팀", "#F07800"), ("보라 팀", "#7B2CBF")]
-BLOCK_COLS = 10
+BLOCK_COLS = 16
+TEAMS_PER_PAGE = 2
 
 
 def px(mm):
@@ -69,57 +73,53 @@ def card_pages():
     return pages
 
 
-def unit_page():
-    img, d = page()
-    d.text((px(MARGIN), px(MARGIN)), "군사 유닛 (한 칸 = 판 1칸, 7.5mm)", font=font(6), fill="black")
-    # 범례
-    y = MARGIN + 11
-    d.text((px(MARGIN), px(y)), "숫자 색:", font=font(3.5), fill="black", anchor="lt")
-    x = MARGIN + 18
-    for v, color, _ in VALUES:
-        d.rectangle([px(x), px(y - 0.5), px(x + 5), px(y + 4.5)], fill=color, outline="black", width=2)
-        d.text((px(x + 6.5), px(y)), str(v), font=font(3.5), fill="black", anchor="lt")
-        x += 22
-    y += 7
-    d.text((px(MARGIN), px(y)), "팀 테두리:", font=font(3.5), fill="black", anchor="lt")
-    x = MARGIN + 18
-    for name, color in TEAMS:
-        d.rectangle([px(x), px(y - 0.5), px(x + 5), px(y + 4.5)], fill="white", outline=color, width=px(1))
-        d.text((px(x + 6.5), px(y)), name, font=font(3.2), fill="black", anchor="lt")
-        x += 28
-    # 팀별 블록: 2열 x 3줄
-    units = [(v, color) for v, color, n in VALUES for _ in range(n)]
+def unit_pages():
+    units = [(v, fill, ink) for v, fill, ink, n in VALUES for _ in range(n)]
     rows = -(-len(units) // BLOCK_COLS)
     bw, bh = BLOCK_COLS * UNIT, rows * UNIT
-    gap_x = A4[0] - 2 * MARGIN - 2 * bw
-    top = y + 12
-    num_font = {len(str(v)): font(3.4 if len(str(v)) == 1 else 3.0 if len(str(v)) == 2 else 2.4) for v, _, _ in VALUES}
-    for t, (name, team_color) in enumerate(TEAMS):
-        bx = MARGIN + (t % 2) * (bw + gap_x)
-        by = top + (t // 2) * (bh + 14)
-        d.text((px(bx), px(by - 2)), f"{name} ({len(units)}개)", font=font(3.5), fill=team_color, anchor="lb")
-        for i, (v, fill) in enumerate(units):
-            x0, y0 = bx + (i % BLOCK_COLS) * UNIT, by + (i // BLOCK_COLS) * UNIT
-            d.rectangle([px(x0), px(y0), px(x0 + UNIT), px(y0 + UNIT)], fill=team_color)
-            d.rectangle([px(x0 + 1.1), px(y0 + 1.1), px(x0 + UNIT - 1.1), px(y0 + UNIT - 1.1)], fill=fill)
-            d.text((px(x0 + UNIT / 2), px(y0 + UNIT / 2)), str(v), font=num_font[len(str(v))],
-                   fill="black", anchor="mm")
-        # 자르는 선
-        for i in range(BLOCK_COLS + 1):
-            d.line([px(bx + i * UNIT), px(by), px(bx + i * UNIT), px(by + bh)], fill="white", width=2)
-        for j in range(rows + 1):
-            d.line([px(bx), px(by + j * UNIT), px(bx + bw), px(by + j * UNIT)], fill="white", width=2)
-    d.text((px(MARGIN), px(A4[1] - MARGIN)),
-           "만드는 법: 실제 크기(100%)로 인쇄 → 두꺼운 종이에 붙이기 → 흰 선을 따라 자르기",
-           font=font(3.2), fill="#444444", anchor="lb")
-    return img
+    size = {1: 3.4, 2: 3.0, 3: 2.4, 4: 1.9}
+    pages = []
+    for p0 in range(0, len(TEAMS), TEAMS_PER_PAGE):
+        img, d = page()
+        d.text((px(MARGIN), px(MARGIN)), "군사 유닛 (한 칸 = 판 1칸, 7.5mm)", font=font(6), fill="black")
+        # 범례: 숫자 색
+        y = MARGIN + 11
+        d.text((px(MARGIN), px(y)), "숫자 색:", font=font(3.5), fill="black", anchor="lt")
+        x = MARGIN + 18
+        for v, fill, _, _ in VALUES:
+            d.rectangle([px(x), px(y - 0.5), px(x + 5), px(y + 4.5)], fill=fill, outline="black", width=2)
+            d.text((px(x + 6.5), px(y)), str(v), font=font(3.3), fill="black", anchor="lt")
+            x += 23 if v >= 100 else 19
+        top = y + 16
+        for k, (name, team_color) in enumerate(TEAMS[p0:p0 + TEAMS_PER_PAGE]):
+            bx = (A4[0] - bw) / 2
+            by = top + k * (bh + 16)
+            d.text((px(bx), px(by - 2)), f"{name} ({len(units)}개) - 테두리 색이 팀", font=font(3.8),
+                   fill=team_color, anchor="lb")
+            for i, (v, fill, ink) in enumerate(units):
+                x0, y0 = bx + (i % BLOCK_COLS) * UNIT, by + (i // BLOCK_COLS) * UNIT
+                d.rectangle([px(x0), px(y0), px(x0 + UNIT), px(y0 + UNIT)], fill=team_color)
+                d.rectangle([px(x0 + 1.1), px(y0 + 1.1), px(x0 + UNIT - 1.1), px(y0 + UNIT - 1.1)], fill=fill)
+                d.text((px(x0 + UNIT / 2), px(y0 + UNIT / 2)), str(v), font=font(size[len(str(v))]),
+                       fill=ink, anchor="mm")
+            # 자르는 선
+            for i in range(BLOCK_COLS + 1):
+                d.line([px(bx + i * UNIT), px(by), px(bx + i * UNIT), px(by + bh)], fill="white", width=2)
+            for j in range(rows + 1):
+                d.line([px(bx), px(by + j * UNIT), px(bx + bw), px(by + j * UNIT)], fill="white", width=2)
+        d.text((px(MARGIN), px(A4[1] - MARGIN)),
+               "만드는 법: 실제 크기(100%)로 인쇄 → 두꺼운 종이에 붙이기 → 흰 선을 따라 자르기",
+               font=font(3.2), fill="#444444", anchor="lb")
+        pages.append(img)
+    return pages
 
 
 def main():
     cards = card_pages()
     cards[0].save(HERE / "카드_인쇄.pdf", save_all=True, append_images=cards[1:], resolution=DPI)
-    unit_page().save(HERE / "군사유닛.pdf", resolution=DPI)
-    print(f"ok: 카드_인쇄.pdf {len(cards)}장, 군사유닛.pdf 1장")
+    units = unit_pages()
+    units[0].save(HERE / "군사유닛.pdf", save_all=True, append_images=units[1:], resolution=DPI)
+    print(f"ok: 카드_인쇄.pdf {len(cards)}장, 군사유닛.pdf {len(units)}장")
 
 
 if __name__ == "__main__":
