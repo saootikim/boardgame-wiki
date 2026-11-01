@@ -43,8 +43,19 @@ TACTIC_COLS = [(123, 533), (563, 973), (1003, 1413)]
 TACTIC_ROWS = [(9, 503), (520, 1007)]
 TACTIC_PLATE = (40, 410, 370, 475)  # 카드 안 빈 효과 칸, px
 
+# 기후 카드: 그림 2장(3×2), 순서는 기후카드_프롬프트.md와 같다. 효과는 기후카드.md 표에서 읽는다.
+# (파일, 열 위치, 줄 위치, 카드 이름)
+CLIMATE_SHEETS = [
+    ("기후카드_1.png", [(176, 537), (593, 947), (1001, 1361)], [(11, 499), (523, 1005)],
+     ["화창함", "비", "눈", "구름 낀", "번개 치는", "지중해성"]),
+    ("기후카드_2.png", [(167, 545), (588, 952), (996, 1370)], [(11, 500), (522, 1007)],
+     ["안개", "강풍", "가뭄 기미", "풍년", "오로라", "붉은 하늘"]),
+]
+CLIMATE_PLATE = (0.11, 0.84, 0.89, 0.955)  # 빈 효과 칸, 카드 너비·높이에 대한 비율
+
 # 뒷면: (덱, 바탕색, 테두리색)
-BACKS = {"곡물": ("#3B2A12", "#E8B84A"), "군사": ("#14224A", "#D9B45A"), "전술": ("#2A1630", "#D4AF37")}
+BACKS = {"곡물": ("#3B2A12", "#E8B84A"), "군사": ("#14224A", "#D9B45A"), "전술": ("#2A1630", "#D4AF37"),
+         "기후": ("#0F3640", "#8FD8E8")}
 
 # 군사 유닛: 칸 안 색 = 숫자, 테두리 색 = 팀
 # (숫자, 안쪽 색, 글자 색, 팀당 개수)
@@ -96,20 +107,20 @@ def on_card(art):
     return card
 
 
-def tactic_effects():
-    """전술카드.md 표에서 {카드 이름: 효과}를 읽는다."""
+def card_effects(note):
+    """카드 노트의 표에서 {카드 이름(첫 칸): 효과(마지막 칸)}를 읽는다."""
     effects = {}
-    for line in (CARDS / "전술카드.md").read_text(encoding="utf-8").splitlines():
+    for line in (CARDS / note).read_text(encoding="utf-8").splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 3 and cells[1] in TACTIC_FAMILIES:
-            effects[cells[0]] = cells[2]
+        if line.startswith("|") and len(cells) >= 2:
+            effects[cells[0]] = cells[-1]
     return effects
 
 
-def write_effect(art, scale, text):
-    """빈 효과 칸 안에 글씨를 맞춰 넣는다. 들어갈 때까지 글씨를 줄인다."""
+def write_effect(art, scale, text, plate):
+    """빈 효과 칸(plate, art 안 px) 안에 글씨를 맞춰 넣는다. 들어갈 때까지 글씨를 줄인다."""
     d = ImageDraw.Draw(art)
-    x0, y0, x1, y1 = (round(v * scale) for v in TACTIC_PLATE)
+    x0, y0, x1, y1 = (round(v) for v in plate)
     pad = round(6 * scale)
     w, h = x1 - x0 - 2 * pad, y1 - y0 - 2 * pad
     for size in range(round(28 * scale), 4, -1):
@@ -160,7 +171,7 @@ def _mix(a, b, t):
 
 
 def all_cards():
-    """(덱, 이름, 카드 그림) 목록. 곡물·군사는 COPIES장씩, 전술은 1장씩."""
+    """(덱, 이름, 카드 그림) 목록. 곡물·군사는 COPIES장씩, 전술·기후는 1장씩."""
     out = []
     for fname, cards in SOURCES:
         src = Image.open(CARDS / fname).convert("RGB")
@@ -169,14 +180,24 @@ def all_cards():
             if label:
                 relabel(art, scale, *label)
             out += [(name.split()[0], name, on_card(art))] * COPIES
-    effects = tactic_effects()
+    effects = card_effects("전술카드.md")
     for fam, names in TACTIC_FAMILIES.items():
         src = Image.open(CARDS / f"전술카드_{fam}.png").convert("RGB")
         for i, name in enumerate(names):
             (x0, x1), (y0, y1) = TACTIC_COLS[i % 3], TACTIC_ROWS[i // 3]
             art, scale = fit(src.crop((x0, y0, x1, y1)))
-            write_effect(art, scale, effects[name])
+            write_effect(art, scale, effects[name], [v * scale for v in TACTIC_PLATE])
             out.append(("전술", name, on_card(art)))
+    effects = card_effects("기후카드.md")
+    for fname, cols, rows, names in CLIMATE_SHEETS:
+        src = Image.open(CARDS / fname).convert("RGB")
+        for i, name in enumerate(names):
+            (x0, x1), (y0, y1) = cols[i % 3], rows[i // 3]
+            art, scale = fit(src.crop((x0, y0, x1, y1)))
+            fx0, fy0, fx1, fy1 = CLIMATE_PLATE
+            write_effect(art, scale, effects[name],
+                         (fx0 * art.width, fy0 * art.height, fx1 * art.width, fy1 * art.height))
+            out.append(("기후", name, on_card(art)))
     return out
 
 
