@@ -4,3 +4,4 @@
 .obsidian/cache
 .obsidian/plugins/*/data.json
 __pycache__/
+.court/
