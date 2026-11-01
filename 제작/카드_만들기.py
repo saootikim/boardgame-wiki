@@ -112,7 +112,7 @@ def write_effect(art, scale, text):
     x0, y0, x1, y1 = (round(v * scale) for v in TACTIC_PLATE)
     pad = round(6 * scale)
     w, h = x1 - x0 - 2 * pad, y1 - y0 - 2 * pad
-    for size in range(round(19 * scale), 4, -1):
+    for size in range(round(28 * scale), 4, -1):
         f = ImageFont.truetype(FONT_BOLD, size)
         lines, cur = [], ""
         for word in text.split(" "):
