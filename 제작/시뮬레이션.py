@@ -2,6 +2,7 @@
 
 실행: python 시뮬레이션.py [판 수=200] [플레이어 수=4] [--log]
   --log  첫 판의 해마다 기록을 출력
+  --html 판 수만큼 새로 치고 시뮬레이션_보기.html 을 만든다 (기본 20판)
 
 단순화 (규칙과 다른 점):
 - 지도는 제작/지도.txt (35x23). 한 칸 = 실제 판 약 2x2칸이라 이동 거리는 주사위 합 / 2.
@@ -25,7 +26,7 @@ NEUTRAL = set("TH")  # 상인의 마을, 마계는 나라가 못 차지
 # 종족: (지능, 정복력, HP, 공격력, 처음 곡식)
 RACES = {"인간": (5, 5, 5, 5, 10), "마족": (3, 6, 4, 7, 10), "동물족": (2, 5, 6, 7, 10),
          "드워프": (7, 2, 7, 4, 8), "엘프": (8, 1, 2, 9, 7), "비행족": (3, 7, 4, 6, 8),
-         "고대종": (-1, 7, 7, 7, 8), "심해족": (2, 6, 6, 6, 8)}  # 엘프 7.5→8, 심해족 미정→8
+         "고대종": (-1, 7, 7, 7, 8), "심해족": (2, 6, 6, 6, 8)}  # 엘프 7, 심해족 8, 고대종 8 (시뮬레이션으로 맞춘 임시값)
 ZOMBIE = (3, 3, 3, 3)
 TRAIN_COST = {"마족": 1.7, "고대종": 2}  # 기본 2
 FAMILY = ["공격", "책략", "기동", "방어"]  # 앞이 뒤를 이김 (방어 > 공격)
@@ -65,7 +66,6 @@ class Nation:
         self.army = 0
         self.cells = {castle}
         self.alive = True
-        self.pioneer = 0
 
 
 def fight(rng, a_stats, a_army, d_stats, d_army, a_race="", terrain=""):
@@ -103,7 +103,8 @@ def bfs_dist(race, sources, target):
     return 999
 
 
-def play(rng, n_players=4, log=None):
+def play(rng, n_players=4, log=None, snap=None):
+    """snap에 리스트를 주면 해마다 지도·나라 상태를 담는다 (HTML 보기용)."""
     land = [(y, x) for y in range(H) for x in range(W) if MAP[y][x] in "LJFKR"]
     races = rng.sample(list(RACES), n_players)
     nations, castles = [], []
@@ -142,6 +143,19 @@ def play(rng, n_players=4, log=None):
         if log is not None:
             log.append(f"  {year}년: {loser.name}({loser.race}) 멸망" + (f" ← {winner.name}" if winner else " ← 마왕"))
 
+    def shot(year):
+        if snap is None:
+            return
+        grid = "".join(str(nations.index(owner[(y, x)])) if owner.get((y, x)) and owner[(y, x)].alive else "."
+                       for y in range(H) for x in range(W))
+        events = [e.strip() for e in log if e.startswith("  ")] if log is not None else []
+        if log is not None:
+            log.clear()
+        snap.append({"year": year, "grid": grid, "zombies": zombies, "demon": nations.index(demon) if demon else -1,
+                     "events": events, "nations": [{"grain": n.grain, "army": n.army, "cells": len(n.cells),
+                                                    "alive": n.alive} for n in nations]})
+
+    shot(0)
     for year in range(1, YEAR_CAP + 1):
         alive = [n for n in nations if n.alive]
         if len(alive) <= 1:
@@ -196,13 +210,6 @@ def play(rng, n_players=4, log=None):
                     me.track -= explore_cost(me.race, c)
                     owner[c] = me
                     me.cells.add(c)
-                    if me.race == "인간" and False:  # 개척: 2년에 1번(홀수 해), 옆 빈 칸 1개 더
-                        me.pioneer = year
-                        extra = [n for n in neighbors(c) if n not in owner and passable(me.race, n)
-                                 and MAP[n[0]][n[1]] not in NEUTRAL]
-                        if extra:
-                            owner[extra[0]] = me
-                            me.cells.add(extra[0])
                     continue
                 # 3) 군대 양성 (빚이면 못 함)
                 if me.grain >= cost:
@@ -263,6 +270,9 @@ def play(rng, n_players=4, log=None):
             log.append(f"{year:>2}년 | " + " | ".join(
                 f"{n.name} {n.race} 곡식{n.grain} 땅{len(n.cells)} 군대{n.army}" for n in alive)
                 + (f" | 마왕 좀비{zombies}" if demon else ""))
+        shot(year)
+    if snap is not None and snap[-1]["year"] != year:
+        shot(year)
     alive = [n for n in nations if n.alive]
     if len(alive) == 1:
         result = alive[0].race
@@ -270,10 +280,32 @@ def play(rng, n_players=4, log=None):
         result = "마왕"
     else:  # 20년 제한: 땅, 그다음 곡식
         result = max(alive, key=lambda n: (len(n.cells), n.grain)).race
+    if snap is not None:
+        snap.insert(0, {"castles": [list(n.castle) for n in nations], "races": races, "result": result})
     return year, result, races, stats
 
 
+def export_html(games=20, players=4):
+    """시뮬레이션_보기.html 에 판 여러 개를 넣어 브라우저로 볼 수 있게 만든다."""
+    import json
+    rng = random.Random()
+    data = {"map": MAP, "games": []}
+    for _ in range(games):
+        snap = []
+        play(rng, players, [], snap)
+        head = snap.pop(0)
+        data["games"].append({**head, "years": snap})
+    here = Path(__file__).parent
+    html = (here / "시뮬레이션_보기_틀.html").read_text(encoding="utf-8")
+    out = here / "시뮬레이션_보기.html"
+    out.write_text(html.replace("/*DATA*/null", json.dumps(data, ensure_ascii=False)), encoding="utf-8")
+    print(f"ok: {out.name} ({games}판)")
+
+
 def main():
+    if "--html" in sys.argv:
+        args = [a for a in sys.argv[1:] if not a.startswith("--")]
+        return export_html(int(args[0]) if args else 20, int(args[1]) if len(args) > 1 else 4)
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     games = int(args[0]) if args else 200
     players = int(args[1]) if len(args) > 1 else 4

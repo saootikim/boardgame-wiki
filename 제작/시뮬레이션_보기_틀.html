@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시뮬레이션 보기</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --panel: #ffffff; --ink: #1d1c1a; --muted: #6b675f; --line: #e2ded5;
+    --accent: #8a5a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #16171a; --panel: #202226; --ink: #ecebe7; --muted: #a3a09a; --line: #34363c; --accent: #e0b25c; }
+  }
+  :root[data-theme="dark"] { --bg: #16171a; --panel: #202226; --ink: #ecebe7; --muted: #a3a09a; --line: #34363c; --accent: #e0b25c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "Malgun Gothic", system-ui, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; image-rendering: pixelated; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  button, select { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); }
+  .year { font-weight: 700; min-width: 64px; }
+  .nation { display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .nation:last-child { border-bottom: 0; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; }
+  .nation .name { font-weight: 700; }
+  .nation .nums { grid-column: 2 / 4; color: var(--muted); font-size: 13px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .dead { opacity: .45; text-decoration: line-through; }
+  .tag { font-size: 12px; padding: 1px 6px; border-radius: 99px; background: var(--line); }
+  .result { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; display: none; }
+  .events { max-height: 260px; overflow-y: auto; font-size: 13px; margin: 0; padding-left: 18px; }
+  .events li.now { font-weight: 700; color: var(--accent); }
+  h2 { font-size: 15px; margin: 14px 0 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+</style>
+</head>
+<body>
+<main>
+  <h1>보드게임 시뮬레이션 보기</h1>
+  <p class="sub">컴퓨터 4나라가 규칙 노트의 임시값으로 친 판이다. 색칠된 칸 = 그 나라 땅, 굵은 네모 = 성, X = 무너진 성.</p>
+  <div class="layout">
+    <section class="card">
+      <canvas id="map"></canvas>
+      <div class="legend" id="legend"></div>
+      <div class="controls">
+        <select id="game" aria-label="판 고르기"></select>
+        <button id="prev" aria-label="이전 해">◀</button>
+        <button id="play" class="primary">재생</button>
+        <button id="next" aria-label="다음 해">▶</button>
+        <span class="year" id="yearLabel"></span>
+        <input type="range" id="slider" min="0" value="0" aria-label="연도">
+        <select id="speed" aria-label="속도">
+          <option value="1200">느리게</option>
+          <option value="600" selected>보통</option>
+          <option value="250">빠르게</option>
+        </select>
+      </div>
+      <div class="result" id="result"></div>
+    </section>
+    <aside class="card">
+      <h2 style="margin-top:0">나라</h2>
+      <div id="nations"></div>
+      <h2>일어난 일</h2>
+      <ol class="events" id="events"></ol>
+    </aside>
+  </div>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const TERRAIN = { ".": "#7fb0d6", "D": "#3e6f9e", "S": "#2b5480", "B": "#6a8fb4", "I": "#cdbb8a",
+  "U": "#e9eef2", "L": "#b9c98f", "M": "#8c7a62", "R": "#5fa3c9", "J": "#5e8f4e", "H": "#7a2e2e",
+  "F": "#e3c35a", "K": "#9a9a9a", "T": "#c98a4a" };
+const NAMES = { "L": "육지", "M": "산", "R": "강", "J": "정글", "F": "곡창", "K": "광산", "T": "상인", "H": "마계", "U": "미개발", ".": "바다", "D": "심해", "I": "섬" };
+const COLORS = ["#d62828", "#1d3fbf", "#1e8c3a", "#f07800", "#7b2cbf", "#111111"];
+const S = 24; // 칸 크기 px
+const map = DATA.map, H = map.length, W = map[0].length;
+const cv = document.getElementById("map"), ctx = cv.getContext("2d");
+cv.width = W * S; cv.height = H * S;
+let g = 0, y = 0, timer = null;
+
+const sel = document.getElementById("game");
+DATA.games.forEach((gm, i) => {
+  const o = document.createElement("option");
+  o.value = i; o.textContent = `${i + 1}판 · ${gm.years.length - 1}년 · ${gm.result} 승`;
+  sel.appendChild(o);
+});
+document.getElementById("legend").innerHTML = Object.entries(NAMES)
+  .map(([k, n]) => `<span><i style="background:${TERRAIN[k]}"></i>${n}</span>`).join("");
+
+function draw() {
+  const gm = DATA.games[g], snap = gm.years[y];
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    ctx.fillStyle = TERRAIN[map[r][c]] || "#ccc";
+    ctx.fillRect(c * S, r * S, S, S);
+    const o = snap.grid[r * W + c];
+    if (o !== ".") {
+      ctx.globalAlpha = 0.62; ctx.fillStyle = COLORS[+o]; ctx.fillRect(c * S, r * S, S, S); ctx.globalAlpha = 1;
+    }
+  }
+  ctx.strokeStyle = "rgba(0,0,0,.08)"; ctx.lineWidth = 1;
+  for (let r = 0; r <= H; r++) { ctx.beginPath(); ctx.moveTo(0, r * S); ctx.lineTo(W * S, r * S); ctx.stroke(); }
+  for (let c = 0; c <= W; c++) { ctx.beginPath(); ctx.moveTo(c * S, 0); ctx.lineTo(c * S, H * S); ctx.stroke(); }
+  gm.castles.forEach(([r, c], i) => {
+    const alive = snap.nations[i].alive;
+    ctx.fillStyle = alive ? COLORS[i] : "#444"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
+    ctx.fillRect(c * S + 3, r * S + 3, S - 6, S - 6); ctx.strokeRect(c * S + 3, r * S + 3, S - 6, S - 6);
+    if (!alive) {
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.beginPath();
+      ctx.moveTo(c * S + 6, r * S + 6); ctx.lineTo(c * S + S - 6, r * S + S - 6);
+      ctx.moveTo(c * S + S - 6, r * S + 6); ctx.lineTo(c * S + 6, r * S + S - 6); ctx.stroke();
+    }
+  });
+  // 패널
+  document.getElementById("yearLabel").textContent = `${snap.year}년`;
+  const slider = document.getElementById("slider");
+  slider.max = gm.years.length - 1; slider.value = y;
+  document.getElementById("nations").innerHTML = snap.nations.map((n, i) => `
+    <div class="nation ${n.alive ? "" : "dead"}">
+      <span class="swatch" style="background:${COLORS[i]}"></span>
+      <span class="name">P${i + 1} ${gm.races[i]}</span>
+      <span>${!n.alive ? `<span class="tag">${i === snap.demon ? "마왕" : "멸망"}</span>` : ""}</span>
+      <span class="nums"><span>곡식 ${Math.round(n.grain)}</span><span>땅 ${n.cells}칸</span><span>군대 ${n.army}</span></span>
+    </div>`).join("") + (snap.demon >= 0 ? `<div class="nation"><span class="swatch" style="background:#7a2e2e"></span><span class="name">마왕 (P${snap.demon + 1})</span><span></span><span class="nums"><span>좀비 ${snap.zombies}</span></span></div>` : "");
+  const ev = [];
+  gm.years.slice(1, y + 1).forEach(s => s.events.forEach(e => ev.push([s.year, e])));
+  document.getElementById("events").innerHTML = ev.length
+    ? ev.map(([yr, e]) => `<li class="${yr === snap.year ? "now" : ""}">${e}</li>`).reverse().join("")
+    : "<li>아직 없음</li>";
+  const res = document.getElementById("result"), last = y === gm.years.length - 1;
+  res.style.display = last ? "block" : "none";
+  if (last) {
+    const alive = snap.nations.filter(n => n.alive).length;
+    res.textContent = `${snap.year}년에 끝: ${gm.result} 승리` + (alive > 1 ? " (20년 제한, 땅이 가장 많음)" : alive === 0 ? " (모든 나라 멸망)" : " (혼자 남음)");
+  }
+}
+function stop() { clearInterval(timer); timer = null; document.getElementById("play").textContent = "재생"; }
+function play() {
+  if (timer) return stop();
+  if (y >= DATA.games[g].years.length - 1) y = 0;
+  document.getElementById("play").textContent = "멈춤";
+  timer = setInterval(() => {
+    if (y >= DATA.games[g].years.length - 1) return stop();
+    y++; draw();
+  }, +document.getElementById("speed").value);
+}
+document.getElementById("play").onclick = play;
+document.getElementById("prev").onclick = () => { stop(); y = Math.max(0, y - 1); draw(); };
+document.getElementById("next").onclick = () => { stop(); y = Math.min(DATA.games[g].years.length - 1, y + 1); draw(); };
+document.getElementById("slider").oninput = e => { stop(); y = +e.target.value; draw(); };
+document.getElementById("speed").onchange = () => { if (timer) { stop(); play(); } };
+sel.onchange = () => { stop(); g = +sel.value; y = 0; draw(); };
+draw();
+</script>
+</body>
+</html>
