@@ -14,11 +14,15 @@ CARD = (63, 88)  # 일반 카드(포커) 크기, mm
 UNIT = 7.5  # 군사 유닛 = 판 1칸, mm
 FONT_BOLD = "C:/Windows/Fonts/malgunbd.ttf"
 
-# (파일, 카드 이름, 그림 안 위치 (왼, 위, 오른, 아래) px)
+FONT_NUM = "C:/Windows/Fonts/georgiaz.ttf"
+
+# (파일, 카드 이름, 그림 안 위치 (왼, 위, 오른, 아래) px[, 새 숫자, 원래 왼쪽 위 숫자 너비 px])
+# 곡물은 0 하나를 뗀 단위라 그림의 10~1000을 1~100으로 덮어 쓴다.
 SOURCES = [
     ("KakaoTalk_20261031_183629599.png", [
-        ("곡물 10", (3, 2, 193, 339)), ("곡물 50", (203, 2, 391, 339)), ("곡물 100", (401, 2, 585, 339)),
-        ("곡물 500", (595, 2, 783, 339)), ("곡물 1000", (791, 2, 981, 339))]),
+        ("곡물 1", (3, 2, 193, 339), "1", 72), ("곡물 5", (203, 2, 391, 339), "5", 72),
+        ("곡물 10", (401, 2, 585, 339), "10", 80), ("곡물 50", (595, 2, 783, 339), "50", 82),
+        ("곡물 100", (791, 2, 981, 339), "100", 100)]),
     ("KakaoTalk_20261031_184153418.png", [
         ("군사 10", (159, 7, 520, 511)), ("군사 50", (586, 7, 948, 511)), ("군사 100", (1015, 7, 1377, 510)),
         ("군사 500", (366, 521, 734, 1001)), ("군사 1000", (815, 522, 1177, 1001))]),
@@ -48,6 +52,19 @@ def page():
     return img, ImageDraw.Draw(img)
 
 
+def relabel(art, scale, number, old_w):
+    """그림에 그려진 숫자(왼쪽 위, 아래 '×N')를 덮고 새 숫자를 쓴다."""
+    d = ImageDraw.Draw(art)
+    s = lambda v: round(v * scale)
+    dark = (24, 18, 22)
+    d.rounded_rectangle([s(4), s(8), s(old_w), s(62)], radius=s(14), fill=dark)
+    d.text((s(10), s(36)), number, font=ImageFont.truetype(FONT_NUM, s(40)), fill="white",
+           anchor="lm", stroke_width=s(1.5), stroke_fill="black")
+    cx = art.width // 2
+    d.rectangle([cx - s(52), s(301), cx + s(52), s(333)], fill=dark)
+    d.text((cx, s(317)), f"×{number}", font=ImageFont.truetype(FONT_NUM, s(22)), fill="#F3E3C0", anchor="mm")
+
+
 def card_pages():
     pages = []
     cols, rows = 3, 3
@@ -55,11 +72,13 @@ def card_pages():
     oy = (A4[1] - rows * CARD[1]) / 2 + 3
     for fname, cards in SOURCES:
         src = Image.open(CARDS / fname).convert("RGB")
-        for name, box in cards:
+        for name, box, *label in cards:
             crop = src.crop(box)
             # 비율 유지하며 카드 칸에 맞춤
             scale = min(px(CARD[0]) / crop.width, px(CARD[1]) / crop.height)
             art = crop.resize((round(crop.width * scale), round(crop.height * scale)), Image.LANCZOS)
+            if label:
+                relabel(art, scale, *label)
             img, d = page()
             d.text((px(MARGIN), px(MARGIN / 2 + 1)), f"{name}  (9장, 회색 선 따라 자르기)",
                    font=font(3.5), fill="#555555", anchor="lm")
