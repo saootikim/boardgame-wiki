@@ -24,13 +24,13 @@ NEUTRAL = set("TH")  # 상인의 마을, 마계는 나라가 못 차지
 
 # 종족: (지능, 정복력, HP, 공격력, 처음 곡식)
 RACES = {"인간": (5, 5, 5, 5, 10), "마족": (3, 6, 4, 7, 10), "동물족": (2, 5, 6, 7, 10),
-         "드워프": (7, 2, 7, 4, 8), "엘프": (8, 1, 2, 9, 8), "비행족": (3, 7, 4, 6, 8),
-         "고대종": (-1, 7, 7, 7, 5), "심해족": (2, 6, 6, 6, 8)}  # 엘프 7.5→8, 심해족 미정→8
+         "드워프": (7, 2, 7, 4, 8), "엘프": (8, 1, 2, 9, 7), "비행족": (3, 7, 4, 6, 8),
+         "고대종": (-1, 7, 7, 7, 8), "심해족": (2, 6, 6, 6, 8)}  # 엘프 7.5→8, 심해족 미정→8
 ZOMBIE = (3, 3, 3, 3)
-TRAIN_COST = {"마족": 1.5, "고대종": 4}  # 기본 2
+TRAIN_COST = {"마족": 1.7, "고대종": 2}  # 기본 2
 FAMILY = ["공격", "책략", "기동", "방어"]  # 앞이 뒤를 이김 (방어 > 공격)
 FAMILY_STAT = {"공격": 3, "책략": 0, "기동": 1, "방어": 2}
-YEAR_CAP = 80
+YEAR_CAP = 20  # 20년 제한 규칙
 
 
 def neighbors(p):
@@ -50,6 +50,8 @@ def explore_cost(race, c):
         return 0
     if race == "엘프" and t == "J":
         return 0
+    if race == "심해족" and t in SEA:
+        return 0
     return 2 if t in "M" or t in SEA else 1
 
 
@@ -63,6 +65,7 @@ class Nation:
         self.army = 0
         self.cells = {castle}
         self.alive = True
+        self.pioneer = 0
 
 
 def fight(rng, a_stats, a_army, d_stats, d_army, a_race="", terrain=""):
@@ -142,6 +145,7 @@ def play(rng, n_players=4, log=None):
     for year in range(1, YEAR_CAP + 1):
         alive = [n for n in nations if n.alive]
         if len(alive) <= 1:
+            year -= 1
             break
         rng.shuffle(alive)
         for me in alive:
@@ -192,6 +196,13 @@ def play(rng, n_players=4, log=None):
                     me.track -= explore_cost(me.race, c)
                     owner[c] = me
                     me.cells.add(c)
+                    if me.race == "인간" and False:  # 개척: 2년에 1번(홀수 해), 옆 빈 칸 1개 더
+                        me.pioneer = year
+                        extra = [n for n in neighbors(c) if n not in owner and passable(me.race, n)
+                                 and MAP[n[0]][n[1]] not in NEUTRAL]
+                        if extra:
+                            owner[extra[0]] = me
+                            me.cells.add(extra[0])
                     continue
                 # 3) 군대 양성 (빚이면 못 함)
                 if me.grain >= cost:
@@ -218,6 +229,7 @@ def play(rng, n_players=4, log=None):
             if not n.alive:
                 continue
             income = len(n.cells) + 5 * sum(MAP[c[0]][c[1]] == "F" for c in n.cells)
+            income += 3 if n.race == "인간" else 0  # 교역: 연말 곡식 +3
             if n.grain < 0:
                 income = max(income, 3)
                 stats["debt_years"] += 1
@@ -256,8 +268,8 @@ def play(rng, n_players=4, log=None):
         result = alive[0].race
     elif not alive:
         result = "마왕"
-    else:
-        result = "무승부"
+    else:  # 20년 제한: 땅, 그다음 곡식
+        result = max(alive, key=lambda n: (len(n.cells), n.grain)).race
     return year, result, races, stats
 
 
@@ -286,7 +298,7 @@ def main():
             won[res] += 1
     finished = [y for y, c in zip(years, curves) if y < YEAR_CAP]
     print(f"판 수 {games}, 플레이어 {players}명, 연도 상한 {YEAR_CAP}년")
-    print(f"끝난 판: {len(finished)}/{games}. 끝난 판의 평균 {sum(finished) / max(len(finished), 1):.1f}년, "
+    print(f"20년 전에 끝난 판: {len(finished)}/{games}. 끝난 판의 평균 {sum(finished) / max(len(finished), 1):.1f}년, "
           f"가장 짧은 {min(finished, default=0)}년, 가장 긴 {max(finished, default=0)}년")
     print("결과:", ", ".join(f"{k} {v}" for k, v in sorted(results.items(), key=lambda kv: -kv[1])))
     print("종족 승률 (이긴 판 / 나온 판):")
