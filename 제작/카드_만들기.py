@@ -257,9 +257,9 @@ def unit_pages():
 
 def main():
     cards = card_pages()
-    cards[0].save(HERE / "카드_인쇄.pdf", save_all=True, append_images=cards[1:], resolution=DPI)
+    cards[0].save(HERE / "인쇄" / "카드_인쇄.pdf", save_all=True, append_images=cards[1:], resolution=DPI)
     units = unit_pages()
-    units[0].save(HERE / "군사유닛.pdf", save_all=True, append_images=units[1:], resolution=DPI)
+    units[0].save(HERE / "인쇄" / "군사유닛.pdf", save_all=True, append_images=units[1:], resolution=DPI)
     print(f"ok: 카드_인쇄.pdf {len(cards)}쪽 (앞·뒤), 군사유닛.pdf {len(units)}장")
 
 
