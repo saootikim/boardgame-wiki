@@ -67,9 +67,12 @@ SHEET_DECKS = {
     ]),
 }
 
-# 뒷면: (덱, 바탕색, 테두리색)
-BACKS = {"곡물": ("#3B2A12", "#E8B84A"), "군사": ("#14224A", "#D9B45A"), "전술": ("#2A1630", "#D4AF37"),
-         "기후": ("#0F3640", "#8FD8E8"), "재앙": ("#3A0E0E", "#E0603A"), "이념": ("#111111", "#E8D9A8")}
+# 뒷면: 카드뒷면.png 한 장에 3×2, 순서는 카드뒷면_프롬프트.md와 같다. 덱 이름은 빈 띠에 쓴다.
+BACK_SHEET = "카드뒷면.png"
+BACK_COLS = [(9, 335), (350, 675), (690, 1015)]
+BACK_ROWS = [(105, 734), (794, 1424)]
+BACKS = ["곡물", "군사", "전술", "기후", "재앙", "이념"]
+BACK_NAME = (0.25, 0.612, 0.75, 0.708)  # 빈 띠, 카드 너비·높이에 대한 비율
 
 # 군사 유닛: 칸 안 색 = 숫자, 테두리 색 = 팀
 # (숫자, 안쪽 색, 글자 색, 팀당 개수)
@@ -159,31 +162,14 @@ def write_effect(art, scale, text, plate, max_size=28):
 
 
 def card_back(kind):
-    bg, gold = BACKS[kind]
+    """뒷면 그림을 카드 크기로 늘려 꽉 채운다 (그림이 카드보다 홀쭉하다). 띠에 덱 이름."""
+    i = BACKS.index(kind)
+    (x0, x1), (y0, y1) = BACK_COLS[i % 3], BACK_ROWS[i // 3]
     w, h = px(CARD[0]), px(CARD[1])
-    img = Image.new("RGB", (w, h), bg)
-    d = ImageDraw.Draw(img)
-    # 마름모 무늬
-    step = px(4)
-    for k in range(-h, w + h, step):
-        d.line([(k, 0), (k + h, h)], fill=_mix(bg, gold, 0.12), width=2)
-        d.line([(k, h), (k + h, 0)], fill=_mix(bg, gold, 0.12), width=2)
-    m = px(1.5)
-    d.rounded_rectangle([m, m, w - m, h - m], radius=px(2.5), outline=gold, width=px(0.8))
-    d.rounded_rectangle([m + px(1.3), m + px(1.3), w - m - px(1.3), h - m - px(1.3)], radius=px(1.8),
-                        outline=gold, width=px(0.25))
-    r = px(13)
-    cx, cy = w // 2, h // 2
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=bg, outline=gold, width=px(0.8))
-    d.ellipse([cx - r + px(1.5), cy - r + px(1.5), cx + r - px(1.5), cy + r - px(1.5)], outline=gold, width=px(0.25))
-    d.text((cx, cy - px(1)), kind, font=font(7.5), fill=gold, anchor="mm")
-    d.text((cx, cy + px(6.5)), "카드", font=font(2.6), fill=gold, anchor="mm")
+    img = Image.open(CARDS / BACK_SHEET).convert("RGB").crop((x0, y0, x1, y1)).resize((w, h), Image.LANCZOS)
+    b = BACK_NAME
+    write_effect(img, 1, kind, (b[0] * w, b[1] * h, b[2] * w, b[3] * h), max_size=40)
     return img
-
-
-def _mix(a, b, t):
-    a, b = [int(a[i:i + 2], 16) for i in (1, 3, 5)], [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
 def all_cards():
