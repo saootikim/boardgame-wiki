@@ -14,7 +14,6 @@ A4 = (210, 297)  # 세로, mm
 MARGIN = 10
 CARD = (44, 63)  # 모든 카드 같은 크기 (미니 카드), mm
 GRID = (4, 4)  # A4 1장에 4×4 = 16장
-CARD_BG = "#15110D"  # 그림 비율이 달라 남는 부분 색
 UNIT = 7.5  # 군사 유닛 = 판 1칸, mm
 FONT_BOLD = "C:/Windows/Fonts/malgunbd.ttf"
 
@@ -118,10 +117,8 @@ def fit(crop):
 
 
 def on_card(art):
-    """카드 크기 바탕 가운데에 그림을 놓는다. 모든 카드 크기가 같아진다."""
-    card = Image.new("RGB", (px(CARD[0]), px(CARD[1])), CARD_BG)
-    card.paste(art, ((card.width - art.width) // 2, (card.height - art.height) // 2))
-    return card
+    """그림을 카드 크기로 늘려 꽉 채운다. 덱마다 그림 비율이 달라도 빈 띠가 생기지 않는다."""
+    return art.resize((px(CARD[0]), px(CARD[1])), Image.LANCZOS)
 
 
 def card_effects(note):
