@@ -82,6 +82,12 @@ TEAMS = [("빨강 팀", "#D62828"), ("파랑 팀", "#1D3FBF"), ("초록 팀", "#
          ("검정 팀", "#111111"), ("주황 팀", "#F07800"), ("보라 팀", "#7B2CBF")]
 BLOCK_COLS = 16
 TEAMS_PER_PAGE = 2
+# 군사 기둥: 접는 종이 기둥 (숫자: 높이 mm). 1·5는 납작한 유닛을 그대로 쓴다.
+PILLAR_HEIGHT = {10: 8, 50: 10, 100: 12, 500: 14, 1000: 16}
+PILLARS_PER_VALUE = 6
+PILLAR_COLS = 5
+GLUE = 3  # 옆면 풀칠 날개, mm
+FLAP = 2  # 윗면·바닥 날개, mm
 
 
 def px(mm):
@@ -279,12 +285,86 @@ def unit_pages():
     return pages
 
 
+def dashed(d, x0, y0, x1, y1, dash=0.8):
+    """접는 선(점선). 좌표는 mm."""
+    n = max(1, int(((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5 / dash))
+    for i in range(0, n, 2):
+        a, b = i / n, min(1, (i + 1) / n)
+        d.line([px(x0 + (x1 - x0) * a), px(y0 + (y1 - y0) * a),
+                px(x0 + (x1 - x0) * b), px(y0 + (y1 - y0) * b)], fill="#999999", width=2)  # 회색: 검정 팀 위에서도 보임
+
+
+def pillar_net(d, x, y, v, fill, ink, team_color):
+    """기둥 전개도 1개. (x, y)는 왼쪽 위, mm. 옆면 4장 + 풀칠 날개, 2번째 옆면 위아래에 윗면·바닥."""
+    w, h = UNIT, PILLAR_HEIGHT[v]
+    sy = y + FLAP + w  # 옆면 띠 위쪽
+    fx = x + GLUE + w  # 윗면·바닥이 붙는 2번째 옆면
+    size = {2: 3.0, 3: 2.4, 4: 1.9}[len(str(v))]
+    # 풀칠 날개(옆면 띠 왼쪽)와 윗면·바닥 날개
+    d.polygon([(px(x), px(sy + 1)), (px(x + GLUE), px(sy)), (px(x + GLUE), px(sy + h)), (px(x), px(sy + h - 1))],
+              fill="white", outline="black")
+    for top in (True, False):
+        sq = sy - w if top else sy + h  # 정사각형 위쪽
+        o = sq - FLAP if top else sq + w + FLAP  # 바깥 날개 끝
+        e = sq if top else sq + w
+        d.polygon([(px(fx), px(e)), (px(fx + 0.6), px(o)), (px(fx + w - 0.6), px(o)), (px(fx + w), px(e))],
+                  fill="white", outline="black")
+        for side in (fx, fx + w):  # 양옆 날개
+            out = side - FLAP if side == fx else side + FLAP
+            d.polygon([(px(side), px(sq)), (px(out), px(sq + 0.6)), (px(out), px(sq + w - 0.6)), (px(side), px(sq + w))],
+                      fill="white", outline="black")
+        d.rectangle([px(fx), px(sq), px(fx + w), px(sq + w)], fill=fill if top else "#DDDDDD")
+        if top:
+            d.text((px(fx + w / 2), px(sq + w / 2)), str(v), font=font(size), fill=ink, anchor="mm")
+        dashed(d, fx, e, fx + w, e)
+        dashed(d, fx, sq, fx, sq + w)
+        dashed(d, fx + w, sq, fx + w, sq + w)
+    # 옆면 4장: 팀 색, 위쪽에 숫자
+    for i in range(4):
+        x0 = x + GLUE + i * w
+        d.rectangle([px(x0), px(sy), px(x0 + w), px(sy + h)], fill=team_color)
+        d.text((px(x0 + w / 2), px(sy + 2.2)), str(v), font=font(size), fill="white", anchor="mm")
+        dashed(d, x0, sy, x0, sy + h)
+        if x0 != fx:  # 2번째 옆면의 위아래는 접는 선, 나머지는 자르는 선
+            d.line([px(x0), px(sy), px(x0 + w), px(sy)], fill="black", width=2)
+            d.line([px(x0), px(sy + h), px(x0 + w), px(sy + h)], fill="black", width=2)
+    end = x + GLUE + 4 * w
+    d.line([px(end), px(sy), px(end), px(sy + h)], fill="black", width=2)
+    dashed(d, fx, sy, fx + w, sy)
+    dashed(d, fx, sy + h, fx + w, sy + h)
+
+
+def pillar_pages():
+    """팀마다 A4 1장: 10·50·100·500·1000 기둥을 PILLARS_PER_VALUE개씩."""
+    items = [(v, fill, ink) for v, fill, ink, _ in VALUES if v in PILLAR_HEIGHT for _ in range(PILLARS_PER_VALUE)]
+    net_w = GLUE + 4 * UNIT
+    gap = (A4[0] - 2 * MARGIN - PILLAR_COLS * net_w) / (PILLAR_COLS - 1)
+    pages = []
+    for name, team_color in TEAMS:
+        img, d = page()
+        d.text((px(MARGIN), px(MARGIN)), f"군사 기둥 - {name} ({len(items)}개)", font=font(6), fill=team_color)
+        d.text((px(MARGIN), px(MARGIN + 9)),
+               "실선은 자르고 점선은 접기 → 옆면을 둘러 날개에 풀칠 → 윗면 닫기 → 쌀·소금·모래를 채워 무게 → 바닥 닫기",
+               font=font(3.1), fill="#444444")
+        y = MARGIN + 18
+        for r in range(0, len(items), PILLAR_COLS):
+            row = items[r:r + PILLAR_COLS]
+            for c, (v, fill, ink) in enumerate(row):
+                pillar_net(d, MARGIN + c * (net_w + gap), y, v, fill, ink, team_color)
+            y += max(PILLAR_HEIGHT[v] for v, _, _ in row) + 2 * (UNIT + FLAP) + 3
+        assert y < A4[1] - MARGIN, "기둥이 A4 1장을 넘친다"
+        pages.append(img)
+    return pages
+
+
 def main():
     cards = card_pages()
     cards[0].save(HERE / "인쇄" / "카드_인쇄.pdf", save_all=True, append_images=cards[1:], resolution=DPI)
     units = unit_pages()
     units[0].save(HERE / "인쇄" / "군사유닛.pdf", save_all=True, append_images=units[1:], resolution=DPI)
-    print(f"ok: 카드_인쇄.pdf {len(cards)}쪽 (앞·뒤), 군사유닛.pdf {len(units)}장")
+    pillars = pillar_pages()
+    pillars[0].save(HERE / "인쇄" / "군사기둥.pdf", save_all=True, append_images=pillars[1:], resolution=DPI)
+    print(f"ok: 카드_인쇄.pdf {len(cards)}쪽 (앞·뒤), 군사유닛.pdf {len(units)}장, 군사기둥.pdf {len(pillars)}장")
 
 
 if __name__ == "__main__":
