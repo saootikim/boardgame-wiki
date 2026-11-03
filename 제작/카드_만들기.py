@@ -64,6 +64,10 @@ SHEET_DECKS = {
         ("이념카드.png", [(17, 428), (451, 862), (885, 1296)], [(12, 587), (609, 1176)],
          ["독일", "나치", "파시즘", "사회주의", "자본주의"]),
     ]),
+    "마왕": ("마왕카드.md", (0.10, 0.835, 0.90, 0.95), None, [
+        ("마왕카드.png", [(15, 394), (410, 789), (804, 1183)], [(14, 641), (671, 1297)],
+         ["흉작의 저주", "시체 행군", "공포", "역병", "배신의 속삭임", "무덤 깨우기"]),
+    ]),
 }
 
 # 뒷면: 카드뒷면.png 한 장에 3×2, 순서는 카드뒷면_프롬프트.md와 같다. 덱 이름은 빈 띠에 쓴다.
@@ -72,6 +76,8 @@ BACK_COLS = [(9, 335), (350, 675), (690, 1015)]
 BACK_ROWS = [(105, 734), (794, 1424)]
 BACKS = ["곡물", "군사", "전술", "기후", "재앙", "이념"]
 BACK_NAME = (0.25, 0.612, 0.75, 0.708)  # 빈 띠, 카드 너비·높이에 대한 비율
+# 따로 뽑은 뒷면 그림: 덱 → (파일, 카드 위치 (왼, 위, 오른, 아래) px, 빈 띠 비율)
+BACK_SINGLES = {"마왕": ("마왕카드_뒷면.png", (19, 15, 1042, 1461), (0.25, 0.605, 0.75, 0.69))}
 
 # 군사 유닛: 칸 안 색 = 숫자, 테두리 색 = 팀
 # (숫자, 안쪽 색, 글자 색, 팀당 개수)
@@ -166,11 +172,14 @@ def write_effect(art, scale, text, plate, max_size=28):
 
 def card_back(kind):
     """뒷면 그림을 카드 크기로 늘려 꽉 채운다 (그림이 카드보다 홀쭉하다). 띠에 덱 이름."""
-    i = BACKS.index(kind)
-    (x0, x1), (y0, y1) = BACK_COLS[i % 3], BACK_ROWS[i // 3]
+    if kind in BACK_SINGLES:
+        fname, crop, b = BACK_SINGLES[kind]
+    else:
+        i = BACKS.index(kind)
+        (x0, x1), (y0, y1) = BACK_COLS[i % 3], BACK_ROWS[i // 3]
+        fname, crop, b = BACK_SHEET, (x0, y0, x1, y1), BACK_NAME
     w, h = px(CARD[0]), px(CARD[1])
-    img = Image.open(CARDS / BACK_SHEET).convert("RGB").crop((x0, y0, x1, y1)).resize((w, h), Image.LANCZOS)
-    b = BACK_NAME
+    img = Image.open(CARDS / fname).convert("RGB").crop(crop).resize((w, h), Image.LANCZOS)
     write_effect(img, 1, kind, (b[0] * w, b[1] * h, b[2] * w, b[3] * h), max_size=40)
     return img
 
@@ -224,7 +233,7 @@ def card_pages():
             cur = []
         cur.append(c)
     chunks.append(cur)
-    backs = {k: card_back(k) for k in BACKS}
+    backs = {k: card_back(k) for k in BACKS + list(BACK_SINGLES)}
     pages = []
     for n, chunk in enumerate(chunks, 1):
         names = sorted({name for _, name, _ in chunk}, key=[c[1] for c in chunk].index)
@@ -357,6 +366,31 @@ def pillar_pages():
     return pages
 
 
+def summary_pages():
+    """요약카드.md를 A4 1장에 글씨로 옮긴다. 마크다운 굵게·링크 표시는 뺀다."""
+    text = (HERE / "요약카드.md").read_text(encoding="utf-8").split("---", 2)[2]
+    img, d = page()
+    y, w = px(MARGIN + 5), px(A4[0] - 2 * MARGIN)
+    for line in text.strip().splitlines():
+        if line.startswith((">", "Related")):
+            continue
+        line = re.sub(r"\[(.+?)\]\(.+?\)", r"\1", line).replace("**", "")
+        f = font(7 if line.startswith("# ") else 4.2)
+        line = line.lstrip("# ").replace("- ", "• ", 1)
+        x = px(MARGIN + (6 if line.startswith("•") else 0))
+        cur = ""
+        for word in line.split(" "):  # 줄이 넘치면 다음 줄로
+            if cur and d.textlength(cur + " " + word, font=f) > w - (x - px(MARGIN)):
+                d.text((x, y), cur, font=f, fill="black")
+                y, cur = y + round(f.size * 1.45), word
+            else:
+                cur = (cur + " " + word).strip()
+        d.text((x, y), cur, font=f, fill="black")
+        y += round(f.size * (1.9 if line.startswith("# ") else 1.45)) if line else round(f.size * 0.6)
+    assert y < px(A4[1] - MARGIN), "요약이 A4 1장을 넘친다"
+    return [img]
+
+
 def main():
     cards = card_pages()
     cards[0].save(HERE / "인쇄" / "카드_인쇄.pdf", save_all=True, append_images=cards[1:], resolution=DPI)
@@ -364,7 +398,9 @@ def main():
     units[0].save(HERE / "인쇄" / "군사유닛.pdf", save_all=True, append_images=units[1:], resolution=DPI)
     pillars = pillar_pages()
     pillars[0].save(HERE / "인쇄" / "군사기둥.pdf", save_all=True, append_images=pillars[1:], resolution=DPI)
-    print(f"ok: 카드_인쇄.pdf {len(cards)}쪽 (앞·뒤), 군사유닛.pdf {len(units)}장, 군사기둥.pdf {len(pillars)}장")
+    summary = summary_pages()
+    summary[0].save(HERE / "인쇄" / "요약카드.pdf", resolution=DPI)
+    print(f"ok: 요약카드.pdf 1장, 카드_인쇄.pdf {len(cards)}쪽 (앞·뒤), 군사유닛.pdf {len(units)}장, 군사기둥.pdf {len(pillars)}장")
 
 
 if __name__ == "__main__":
