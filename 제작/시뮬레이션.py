@@ -28,7 +28,9 @@ RACES = {"인간": (5, 5, 5, 5, 10), "마족": (3, 6, 4, 7, 10), "동물족": (2
          "드워프": (7, 2, 7, 4, 8), "엘프": (8, 1, 2, 9, 7), "비행족": (3, 7, 4, 6, 8),
          "고대종": (-1, 7, 7, 7, 8), "심해족": (2, 6, 6, 6, 8)}  # 엘프 7, 심해족 8, 고대종 8 (시뮬레이션으로 맞춘 임시값)
 ZOMBIE = (3, 3, 3, 3)
-TRAIN_COST = {"마족": 1.7, "고대종": 2}  # 기본 2
+TRAIN_COST = {}  # 모두 2. 마족은 5명마다 1명 공짜
+NATIVE = (4, 4, 4, 4)  # 공격적 원주민
+CURSES = ["흉작", "시체 행군", "공포", "역병", "배신", "무덤"]
 FAMILY = ["공격", "책략", "기동", "방어"]  # 앞이 뒤를 이김 (방어 > 공격)
 FAMILY_STAT = {"공격": 3, "책략": 0, "기동": 1, "방어": 2}
 YEAR_CAP = 20  # 20년 제한 규칙
@@ -66,14 +68,15 @@ class Nation:
         self.army = 0
         self.cells = {castle}
         self.alive = True
+        self.falls = 0  # 함락한 남의 성 수 (승점)
 
 
-def fight(rng, a_stats, a_army, d_stats, d_army, a_race="", terrain=""):
+def fight(rng, a_stats, a_army, d_stats, d_army, a_race="", terrain="", bonus=(0, 0)):
     """전투 판정. 공격 쪽이 이기면 True."""
     rolls = []
-    for army, other in ((a_army, d_army), (d_army, a_army)):
+    for side, (army, other) in enumerate(((a_army, d_army), (d_army, a_army))):
         dice = sorted(rng.randint(1, 6) for _ in range(4))
-        rerolls = 2 if army >= 2 * max(other, 1) else 1 if army > other else 0
+        rerolls = (2 if army >= 2 * max(other, 1) else 1 if army > other else 0) + bonus[side]  # bonus: 패권국 상대
         for i in range(rerolls):  # 제일 낮은 주사위를 다시 굴림
             dice[i] = rng.randint(1, 6)
         rolls.append(sorted(dice))
@@ -116,15 +119,15 @@ def play(rng, n_players=4, log=None, snap=None):
         castles.append(c)
         nations.append(Nation(f"P{i + 1}", race, c, rng.choice([3, 0, -2])))
     owner = {n.castle: n for n in nations}
-    demon, zombies, dead_pool = None, 0, 0
+    demon, zombies, dead_pool, hegemon = None, 0, 0, None
     stats = {"castle_falls": [], "debt_years": 0, "grain": [], "army": [], "cells": []}
 
     def kill(k):
         nonlocal dead_pool, zombies
         dead_pool += k
-        if demon:
-            zombies += dead_pool // 2
-            dead_pool %= 2
+        if demon:  # 좀비 1:1. 마왕이 생기기 전에 죽은 군대도 그때 좀비가 됨
+            zombies += dead_pool
+            dead_pool = 0
 
     def fall(winner, loser, year):
         nonlocal demon
@@ -135,11 +138,16 @@ def play(rng, n_players=4, log=None, snap=None):
                 winner.cells.add(c)
         if winner:
             winner.grain += max(loser.grain, 0)
-        kill(loser.army)  # 망한 나라 남은 군대: 미정이라 일단 좀비로
+            winner.falls += 1
+            winner.army += loser.army // 2  # 남은 군대 절반 흡수, 나머지는 좀비
+            kill(loser.army - loser.army // 2)
+        else:
+            kill(loser.army)
         loser.army = 0
         stats["castle_falls"].append(year)
         if demon is None:
             demon = loser
+            kill(0)
         if log is not None:
             log.append(f"  {year}년: {loser.name}({loser.race}) 멸망" + (f" ← {winner.name}" if winner else " ← 마왕"))
 
@@ -184,7 +192,8 @@ def play(rng, n_players=4, log=None, snap=None):
                         target = rng.choice(near) if near else None
                 if target:
                     o = owner[target]
-                    win = fight(rng, me.stats, me.army, o.stats, o.army, me.race, MAP[target[0]][target[1]])
+                    bonus = (1 if o is hegemon else 0, 1 if me is hegemon else 0)
+                    win = fight(rng, me.stats, me.army, o.stats, o.army, me.race, MAP[target[0]][target[1]], bonus)
                     if win:
                         lost = o.army // 2
                         o.army -= lost
@@ -208,6 +217,18 @@ def play(rng, n_players=4, log=None, snap=None):
                 if free and (me.army >= want_army or me.grain < cost):
                     c = max(free, key=lambda c: (MAP[c[0]][c[1]] in "FK", rng.random()))
                     me.track -= explore_cost(me.race, c)
+                    if MAP[c[0]][c[1]] == "U":  # 원주민
+                        kind = rng.choice(["상인", "공격적", "친근함"])
+                        if kind == "상인":
+                            if me.grain < 3:
+                                continue
+                            me.grain -= 3
+                        elif kind == "공격적":
+                            if not fight(rng, me.stats, me.army, NATIVE, 3):
+                                me.army -= me.army // 2
+                                continue
+                        else:
+                            me.grain += 2
                     owner[c] = me
                     me.cells.add(c)
                     continue
@@ -215,7 +236,7 @@ def play(rng, n_players=4, log=None, snap=None):
                 if me.grain >= cost:
                     k = int(me.grain * 0.7 // cost) or 1
                     me.grain -= k * cost
-                    me.army += k
+                    me.army += k + (k // 5 if me.race == "마족" else 0)
                 me.track = min(5, me.track + 2)
         # 마왕: 행동 2번, 좀비로 군대가 제일 약한 나라의 성을 친다
         if demon:
@@ -225,12 +246,27 @@ def play(rng, n_players=4, log=None, snap=None):
                     break
                 o = min(alive, key=lambda o: o.army)
                 if fight(rng, ZOMBIE, zombies, o.stats, o.army):
-                    lost = o.army // 2
-                    o.army -= lost
-                    kill(lost)
+                    zombies += o.army  # 좀비에게 지면 군대 전부가 좀비
+                    o.army = 0
                     fall(None, o, year)
                 else:
                     zombies -= zombies // 2
+        # 저주 카드: 마왕과 마왕 편이 1장씩
+        curse_hit = {}
+        if demon:
+            for _ in [n for n in nations if not n.alive]:
+                alive = [n for n in nations if n.alive]
+                if not alive:
+                    break
+                card, o = rng.choice(CURSES), rng.choice(alive)
+                if card == "흉작":
+                    curse_hit[o] = curse_hit.get(o, 0) + 3
+                elif card == "역병":
+                    lost = min(o.army, 5)
+                    o.army -= lost
+                    kill(lost)
+                elif card == "무덤":
+                    zombies += 5
         # 연말
         for n in nations:
             if not n.alive:
@@ -240,24 +276,30 @@ def play(rng, n_players=4, log=None, snap=None):
             if n.grain < 0:
                 income = max(income, 3)
                 stats["debt_years"] += 1
-            n.grain += income
+            n.grain += income - curse_hit.get(n, 0)
+            fee = n.army // 10  # 유지비: 10명당 곡식 1
+            paid = min(fee, max(n.grain, 0))
+            n.grain -= paid
+            n.army -= (fee - paid) * 10  # 못 낸 1당 10명 해산
+        ranked = sorted((n for n in nations if n.alive), key=lambda n: -len(n.cells))
+        hegemon = ranked[0] if len(ranked) > 1 and len(ranked[0].cells) >= 2 * len(ranked[1].cells) else None
         if year % 3 == 0:  # 재앙
             d = rng.choice(["전염병", "빙하기", "소행성", "화산", "없음"])
             for n in nations:
                 if not n.alive:
                     continue
                 if d == "전염병":
-                    lost = n.army * rng.choice([20, 30, 40, 50, 60, 70]) // 100
+                    lost = min(n.army, rng.randint(1, 6) * 2)
                     n.army -= lost
                     kill(lost)
                 elif d == "빙하기":
-                    n.grain -= int(len(n.cells) * 0.7)
+                    n.grain -= min(5, len(n.cells))
                 elif d == "소행성":
                     for c in rng.sample(sorted(n.cells - {n.castle}), min(4, len(n.cells) - 1)):
                         n.cells.discard(c)
                         owner.pop(c, None)
                 elif d == "화산":
-                    lost = min(n.army, 10)
+                    lost = min(n.army, 5)
                     n.army -= lost
                     kill(lost)
             if log is not None and d != "없음":
@@ -278,8 +320,8 @@ def play(rng, n_players=4, log=None, snap=None):
         result = alive[0].race
     elif not alive:
         result = "마왕"
-    else:  # 20년 제한: 땅, 그다음 곡식
-        result = max(alive, key=lambda n: (len(n.cells), n.grain)).race
+    else:  # 20년 제한 승점제: 땅 1, 남의 성 함락 10, 지킨 자기 성 5. 같으면 곡식
+        result = max(alive, key=lambda n: (len(n.cells) + 10 * n.falls + 5, n.grain)).race
     if snap is not None:
         snap.insert(0, {"castles": [list(n.castle) for n in nations], "races": races, "result": result})
     return year, result, races, stats
