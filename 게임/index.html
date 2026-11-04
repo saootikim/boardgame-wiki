@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>보드게임</title>
+<style>
+  :root { --bg:#14161a; --panel:#1e2127; --ink:#ecebe7; --muted:#9a978f; --line:#343842; --accent:#e0b25c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 "Malgun Gothic", system-ui, sans-serif; }
+  .wrap { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:12px; padding:12px; height:100vh; }
+  .mapbox { position:relative; overflow:auto; background:#000; border-radius:8px; }
+  canvas { width:100%; height:auto; display:block; cursor:crosshair; }
+  aside { display:flex; flex-direction:column; gap:10px; overflow-y:auto; }
+  .box { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
+  h1 { font-size:16px; margin:0; } h2 { margin:0 0 8px; } h3 { margin:6px 0; font-size:15px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .nrow { padding:4px 0; border-bottom:1px solid var(--line); } .nrow:last-child { border:0; }
+  .nrow .nums { display:block; color:var(--muted); font-size:12px; } .dead { opacity:.5; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; }
+  .track i { display:inline-block; width:14px; height:10px; border:1px solid var(--accent); margin-right:2px; border-radius:2px; }
+  .track i.on { background:var(--accent); }
+  #actions { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px; }
+  button { font:inherit; padding:6px 8px; border-radius:6px; border:1px solid var(--line); background:#2a2e36; color:var(--ink); cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); } button:disabled { opacity:.4; cursor:default; }
+  button.primary { background:var(--accent); color:#1a1a1a; border-color:var(--accent); font-weight:700; }
+  #acts { font-weight:700; color:var(--accent); }
+  .card { display:inline-block; margin:2px; vertical-align:top; text-align:center; font-size:11px; }
+  .card img { width:100%; border-radius:6px; display:block; }
+  .card.small { width:88px; } .card.big { width:240px; font-size:13px; }
+  .card figcaption { margin-top:2px; }
+  #hand { display:flex; flex-wrap:wrap; }
+  #log { list-style:none; margin:0; padding:0; max-height:240px; overflow-y:auto; font-size:12px; }
+  #log li { padding:2px 0; border-bottom:1px solid #262a31; }
+  #log .big { color:var(--accent); font-weight:700; } #log .fight { color:#ff9e8a; } #log .card { color:#9fd3ff; } #log .curse { color:#d39bff; } #log .hint { color:#c5e1a5; }
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:9; }
+  #modal[hidden] { display:none; }
+  .mbox { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; max-width:min(900px,94vw); max-height:90vh; overflow:auto; }
+  #modalBtns { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; justify-content:flex-end; }
+  .tbl { border-collapse:collapse; width:100%; font-size:13px; } .tbl td, .tbl th { border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; }
+  .dice, .slots, .cards { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  .die { width:48px; height:48px; font-size:22px; font-weight:700; background:#f5f1e6; color:#222; }
+  .die.used { opacity:.25; } .die.pick { outline:3px solid var(--accent); }
+  .slot { width:100px; height:58px; }
+  .cardbtn { padding:2px; background:transparent; }
+  .curse { margin:2px; background:#3b2246; }
+  #info { min-height:18px; }
+  @media (max-width: 1000px) { .wrap { grid-template-columns:1fr; height:auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="mapbox"><canvas id="map"></canvas></div>
+  <aside>
+    <div class="box">
+      <h1>보드게임 <span id="year" class="muted"></span></h1>
+      <div id="climate" class="muted"></div>
+      <div id="info" class="muted"></div>
+    </div>
+    <div class="box">
+      <div id="me"></div>
+      <div id="acts"></div>
+      <div id="actions">
+        <button data-a="explore">탐사</button>
+        <button data-a="train">군대 양성</button>
+        <button data-a="move" data-demon>군대 이동</button>
+        <button data-a="temple">신전 바치기</button>
+        <button data-a="shop">상점</button>
+        <button data-a="rest" data-demon>쉬기</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Esc = 고르기 취소 · 탐사가 아닌 행동은 정복도 +2칸 · <label><input type="checkbox" id="fast"> 컴퓨터 빨리</label></div>
+      <div id="curses"></div>
+    </div>
+    <div class="box"><b>전술 카드</b><div id="hand"></div></div>
+    <div class="box"><b>나라</b><div id="nations"></div></div>
+    <div class="box"><b>기록</b><ul id="log"></ul></div>
+  </aside>
+</div>
+<div id="modal" hidden><div class="mbox"><div id="modalBody"></div><div id="modalBtns"></div></div></div>
+<script src="data.js"></script>
+<script src="rules.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
