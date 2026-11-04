@@ -33,6 +33,7 @@ ZOMBIE = (3, 3, 3, 3)
 TRAIN_COST = {}  # 모두 2. 마족은 5명마다 1명 공짜
 NATIVE = (4, 4, 4, 4)  # 공격적 원주민
 CURSES = ["흉작", "시체 행군", "공포", "역병", "배신", "무덤"]
+CURSE_PER, HARVEST, PLAGUE, GRAVE = 1, 3, 5, 5  # 1년에 쓰는 장 수, 흉작 곡식, 역병 군대, 무덤 좀비
 FAMILY = ["공격", "책략", "기동", "방어"]  # 앞이 뒤를 이김 (방어 > 공격)
 FAMILY_STAT = {"공격": 3, "책략": 0, "기동": 1, "방어": 2}
 YEAR_CAP = 20  # 20년 제한 규칙
@@ -256,19 +257,19 @@ def play(rng, n_players=4, log=None, snap=None):
         # 저주 카드: 마왕과 마왕 편이 1장씩
         curse_hit = {}
         if demon:
-            for _ in [n for n in nations if not n.alive]:
+            for _ in [n for n in nations if not n.alive] * CURSE_PER:
                 alive = [n for n in nations if n.alive]
                 if not alive:
                     break
                 card, o = rng.choice(CURSES), rng.choice(alive)
                 if card == "흉작":
-                    curse_hit[o] = curse_hit.get(o, 0) + 3
+                    curse_hit[o] = curse_hit.get(o, 0) + HARVEST
                 elif card == "역병":
-                    lost = min(o.army, 5)
+                    lost = min(o.army, PLAGUE)
                     o.army -= lost
                     kill(lost)
                 elif card == "무덤":
-                    zombies += 5
+                    zombies += GRAVE
         # 연말
         for n in nations:
             if not n.alive:
