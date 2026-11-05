@@ -12,6 +12,7 @@ const d6 = () => 1 + Math.floor(Math.random() * 6);
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const SEA = new Set([".", "D", "S", "B"]);
+const CASTLE_OK = "LJRFMKUI"; // 성을 놓을 수 있는 땅
 const sleep = ms => new Promise(r => setTimeout(r, G.fast ? 0 : ms));
 
 // 전술 카드 효과 (전술카드.md 표를 옮김). s = 스탯 번호(0 지능,1 정복력,2 HP,3 공격력), v = 올리는 값
@@ -614,8 +615,12 @@ cv.addEventListener("click", async e => {
   const k = key(Math.floor((e.clientX - r.left) / r.width * W), Math.floor((e.clientY - r.top) / r.height * H));
   const n = me();
   if (G.mode === "castle") {
-    if (!"LJRF".includes(ter(k))) return log("성은 육지·정글·강·곡창 칸에만 놓을 수 있다.", "hint");
-    G.mode = null; G.castleResolve(k); return;
+    // 땅 칸이면 어디든 놓는다. 바다 등을 누르면 가장 가까운 땅 칸으로 맞춘다.
+    const ok = c => CASTLE_OK.includes(ter(c));
+    let best = ok(k) ? k : null;
+    if (best === null) for (let r = 1; r <= 3 && best === null; r++) best = [...Array(W * H).keys()].find(c => ok(c) && dist(c, k) === r) ?? null;
+    if (best === null) return log("땅 칸을 눌러야 성을 놓을 수 있다.", "hint");
+    G.mode = null; $("banner").hidden = true; G.castleResolve(best); return;
   }
   if (G.mode === "explore" && G.pending?.has(k)) {
     G.mode = null; G.pending = null; G.busy = true; await doExplore(n, k); G.busy = false; endAction(n, true); return;
@@ -946,6 +951,7 @@ async function setup() {
   findIslands();
   log(`지역 카드: ${me().region > 0 ? "좋은 땅" : me().region < 0 ? "나쁜 땅" : "보통 땅"} (곡식 ${me().region >= 0 ? "+" : ""}${me().region})`);
   G.mode = "castle"; render();
+  $("banner").textContent = "지도에서 성을 놓을 땅 칸을 누르세요"; $("banner").hidden = false;
   log("성을 놓을 칸(육지·정글·강·곡창)을 지도에서 누른다.", "hint");
   const ck = await new Promise(res => G.castleResolve = res);
   placeCastle(me(), ck);

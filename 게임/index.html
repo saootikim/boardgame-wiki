@@ -45,12 +45,13 @@
   .cardbtn { padding:2px; background:transparent; }
   .curse { margin:2px; background:#3b2246; }
   #info { min-height:18px; }
+  #banner { position:sticky; top:0; z-index:2; padding:10px; text-align:center; font-weight:700; font-size:16px; background:var(--accent); color:#1a1a1a; }
   @media (max-width: 1000px) { .wrap { grid-template-columns:1fr; height:auto; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="mapbox"><canvas id="map"></canvas></div>
+  <div class="mapbox"><div id="banner" hidden></div><canvas id="map"></canvas></div>
   <aside>
     <div class="box">
       <h1>보드게임 <span id="year" class="muted"></span></h1>
