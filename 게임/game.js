@@ -31,7 +31,7 @@ const TACT = Object.fromEntries(DATA.tactics.map(c => [c.name, c]));
 const G = {
   year: 1, nations: [], owner: new Map(), demon: null, deadPool: 0, eventZombies: [], log: [],
   climate: null, effects: {}, nextEffects: {}, decks: {}, hegemon: null, fast: false, mode: null, over: false,
-  pending: null, sel: null, reach: null, nextStackId: 1, islands: [], hover: null,
+  forts: new Set(), pending: null, sel: null, reach: null, nextStackId: 1, islands: [], hover: null,
 };
 
 // ---------- 준비 ----------
@@ -41,7 +41,7 @@ function makeNation(i, race, human) {
   return {
     id: i, name: NAMES[i], race, human, color: COLORS[i], stats: r.slice(0, 4), grain: r[4] + region, region,
     track: RULES.trackStart, cells: new Set(), castle: null, stacks: [], hand: [], alive: true, falls: 0,
-    demonSide: false, noTrainYear: 0, curses: [],
+    demonSide: false, noTrainYear: 0, curses: [], ship: false,
   };
 }
 function newDecks() {
@@ -101,6 +101,7 @@ function render() {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const k = key(x, y);
     if (T[y][x] === "X") { ctx.fillStyle = "rgba(20,20,20,.75)"; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); }
+    if (T[y][x] === "H") { ctx.fillStyle = "rgba(150,0,40,.45)"; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); }
     const o = G.owner.get(k);
     if (o !== undefined) { ctx.globalAlpha = .45; ctx.fillStyle = G.nations[o].color; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); ctx.globalAlpha = 1; }
   }
@@ -112,9 +113,20 @@ function render() {
       if (kind === "fight") { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 3; ctx.strokeRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2); }
     }
   }
-  if (G.mode === "explore" && G.pending) {
+  if ((G.mode === "explore" || G.mode === "fort") && G.pending) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
     for (const k of G.pending) { const [x, y] = xy(k); ctx.strokeRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4); }
+  }
+  // 마계 이름표
+  const hs = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (T[y][x] === "H") hs.push([x, y]);
+  if (hs.length) {
+    const cx = hs.reduce((a, p) => a + p[0], 0) / hs.length, cy = Math.min(...hs.map(p => p[1]));
+    ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = "#000"; ctx.fillStyle = "#ff8a8a";
+    ctx.strokeText("마계", (cx + .5) * CELL, cy * CELL - 4); ctx.fillText("마계", (cx + .5) * CELL, cy * CELL - 4);
+  }
+  for (const k of G.forts) {
+    const [x, y] = xy(k); ctx.fillStyle = "#ddd"; ctx.strokeStyle = "#333"; ctx.lineWidth = 2;
+    ctx.fillRect(x * CELL + 4, y * CELL + 4, CELL - 8, CELL - 8); ctx.strokeRect(x * CELL + 4, y * CELL + 4, CELL - 8, CELL - 8);
   }
   for (const n of G.nations) if (n.castle !== null) {
     const [x, y] = xy(n.castle);
@@ -159,7 +171,7 @@ function renderPanel() {
     (G.demon ? `<div class="nrow"><span class="sw" style="background:#5b1a1a"></span><b>마왕</b> (${G.demonPlayer.name}) <span class="nums">좀비 ${G.demon.zombies.reduce((a, s) => a + s.n, 0)}</span></div>` : "");
   $("me").innerHTML = `<b style="color:${m.color}">${m.name} · ${m.race}</b> <span class="muted">${RULES.raceAbility[m.race]}</span><br>
     스탯 지능 ${m.stats[0]} · 정복력 ${m.stats[1]} · HP ${m.stats[2]} · 공격력 ${m.stats[3]}<br>
-    곡식 <b>${m.grain}</b>${m.grain < 0 ? " (빚)" : ""} · 땅 ${m.cells.size}칸 · 군대 ${army(m)} · 승점 ${score(m)}<br>
+    곡식 <b>${m.grain}</b>${m.grain < 0 ? " (빚)" : ""} · 땅 ${m.cells.size}칸 · 군대 ${army(m)} · 승점 ${score(m)} · 배 ${m.ship || m.race === "심해족" ? "있음" : "없음"}<br>
     정복도 <span class="track">${[...Array(RULES.trackMax)].map((_, i) => `<i class="${i < m.track ? "on" : ""}"></i>`).join("")}</span> ${m.track}/${RULES.trackMax}`;
   $("hand").innerHTML = m.hand.length ? m.hand.map(c => cardImg(TACT[c], "small")).join("") : '<span class="muted">전술 카드 없음 (광산·상점·신전에서 얻음)</span>';
   $("curses").innerHTML = m.curses.length ? m.curses.map((c, i) => `<button class="curse" data-i="${i}">${c} 쓰기</button>`).join("") : "";
@@ -207,8 +219,8 @@ async function showCard(c, title) {
 function exploreCost(n, k) {
   const t = ter(k), base = RULES.terrain[t][1];
   if (base === null) return null;
-  if (SEA.has(t) && n.race !== "심해족") return null;
   let c = base;
+  if (SEA.has(t) && n.ship) c = 1;
   if (n.race === "비행족" && "MR".includes(t)) c = 0;
   if (n.race === "엘프" && t === "J") c = 0;
   if (n.race === "심해족" && SEA.has(t)) c = 0;
@@ -241,12 +253,14 @@ function canStand(side, k) {
   if (t === "H") return side === "demon";
   if (G.effects.volcano && t === "M") return false;
   if (t === "S") return true;
-  if (SEA.has(t)) return side !== "demon" && side !== "event" && side.race === "심해족";
+  if (SEA.has(t)) return canSail(side); // 배가 있으면 바다 위에서 멈췄다가 다음 차례에 이어서 건넘
   return true;
 }
-function passable(k) {
+function canSail(side) { return side !== "demon" && side !== "event" && (side.race === "심해족" || side.ship); }
+function passable(k, side) {
   const t = ter(k);
   if (t === "X") return false;
+  if (SEA.has(t) && t !== "S" && side !== undefined && !canSail(side)) return false;
   if (G.effects.volcano && t === "M") return false;
   return true;
 }
@@ -263,7 +277,7 @@ function reachable(side, stack, steps) {
     const [c, d] = q.shift();
     if (d === steps) continue;
     for (const nb of neighbors(c)) {
-      if (seen.has(nb) || !passable(nb)) continue;
+      if (seen.has(nb) || !passable(nb, side)) continue;
       seen.add(nb);
       const other = stackAt(nb);
       const mine = other && other.nation === side;
@@ -285,7 +299,7 @@ function cardFx(name, ctx, isAtt) {
   let ok = true;
   const t = ter(ctx.target), src = ter(ctx.from);
   if (fx.cond === "attacker") ok = isAtt;
-  if (fx.cond === "defCastle") ok = !isAtt && ctx.isCastle;
+  if (fx.cond === "defCastle") ok = !isAtt && (ctx.isCastle || G.forts.has(ctx.target));
   if (fx.cond === "defOwnLand") ok = !isAtt && ctx.defOwnsCell;
   if (fx.cond === "defMountain") ok = !isAtt && t === "M";
   if (fx.cond === "jungleMountain") ok = "JM".includes(t);
@@ -438,6 +452,7 @@ async function attack(mover, stack, target) {
   let D;
   if (def) D = def.nation === "demon" ? zombieSide(def.s, false) : def.nation === "event" ? zombieSide(def.s, true) : sideOf(def.nation, def.s);
   else D = sideOf(defNation, null);
+  G.lastGuard = def ? def.s.n : 0;
   const r = await battle(A, D, ctx);
   if (r.attWin) {
     if (def) {
@@ -464,11 +479,14 @@ async function attack(mover, stack, target) {
   render();
 }
 function claim(n, k) { G.owner.set(k, n.id); n.cells.add(k); }
+function coastal(n) { return [...n.cells].some(c => neighbors(c).some(k => ter(k) === ".")); }
+function buildCost(n, what) { return what === "fort" ? (n.race === "드워프" ? RULES.fortCost / 2 : RULES.fortCost) : RULES.shipCost; }
 
 async function fallCastle(winner, loser) {
   loser.alive = false;
   const wNation = winner !== "demon" && winner !== "event" ? winner : null;
-  log(`${loser.name}(${loser.race})의 성이 함락됐다! ← ${wNation ? wNation.name : winner === "demon" ? "마왕" : "좀비사태"}`, "big");
+  const guard = G.lastGuard ?? 1;
+  log(`${loser.name}(${loser.race})의 성이 함락됐다! ← ${wNation ? wNation.name : winner === "demon" ? "마왕" : "좀비사태"}${guard === 0 ? " (성에 지키는 군대가 없었음)" : ""}`, "big");
   for (const c of loser.cells) { G.owner.delete(c); if (wNation) claim(wNation, c); }
   loser.cells.clear();
   const rest = army(loser);
@@ -539,6 +557,8 @@ function shopOpen(n) {
 function shopPrice() { return Math.max(1, RULES.shopPrice - (G.climate?.name === "지중해성" ? 1 : 0)); }
 async function doMove(n, stack, steps, dest) {
   const kind = G.reach.get(dest);
+  if (n.human && stack.pos === n.castle && !n.stacks.some(t => t !== stack && t.pos === n.castle))
+    log("주의: 성이 비었다. 적이 성 칸에서 이기면 바로 멸망한다.", "big");
   G.reach = null;
   if (kind === "fight") { await attack(n, stack, dest); return; }
   if (kind === "bermuda") {
@@ -612,9 +632,20 @@ function humanAction(id) {
     if (!shopOpen(n)) return log("상인의 마을 옆 칸을 차지해야 상점을 쓸 수 있다.", "hint");
     if (n.grain < shopPrice()) return log("곡식이 모자란다.", "hint");
     n.grain -= shopPrice(); const c = draw("tactics"); n.hand.push(c); log(`나: 상점에서 ${c} 구입`); endAction(n, false);
+  } else if (id === "ship") {
+    if (n.ship || n.race === "심해족") return log(n.race === "심해족" ? "심해족은 배 없이 바다로 다닌다." : "이미 배가 있다.", "hint");
+    if (!coastal(n)) return log("바닷가 내 땅이 있어야 배를 지을 수 있다.", "hint");
+    if (n.grain < buildCost(n, "ship")) return log("곡식이 모자란다.", "hint");
+    n.grain -= buildCost(n, "ship"); n.ship = true; log(`나: 배·항구 건설 (곡식 -${buildCost(n, "ship")}). 이제 군대가 바다를 건널 수 있다.`); endAction(n, false);
+  } else if (id === "fort") {
+    if (n.grain < buildCost(n, "fort")) return log(`곡식이 모자란다 (요새 ${buildCost(n, "fort")}).`, "hint");
+    G.mode = "fort"; G.pending = new Set([...n.cells].filter(c => !G.forts.has(c) && c !== n.castle));
+    banner(`요새를 지을 내 땅을 누르세요 (곡식 ${buildCost(n, "fort")}) · Esc = 취소`); render();
   } else if (id === "rest") { log("나: 쉼"); endAction(n, false); }
 }
-function cancelMode() { G.mode = null; G.pending = null; G.reach = null; G.sel = null; banner(null); render(); }
+function cancelMode() {
+  if (G.splitFrom && G.sel) { G.splitFrom.n += G.sel.n; removeStack(G.demonMove ? "demon" : me(), G.sel); } // 나눈 걸 취소하면 다시 합침
+  G.splitFrom = null; G.mode = null; G.pending = null; G.reach = null; G.sel = null; banner(null); render(); }
 cv.addEventListener("mousemove", e => {
   const r = cv.getBoundingClientRect();
   const x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * H);
@@ -633,6 +664,10 @@ cv.addEventListener("click", async e => {
     if (best === null) return log("땅 칸을 눌러야 성을 놓을 수 있다.", "hint");
     G.mode = null; $("banner").hidden = true; G.castleResolve(best); return;
   }
+  if (G.mode === "fort" && G.pending?.has(k)) {
+    G.mode = null; G.pending = null; banner(null);
+    n.grain -= buildCost(n, "fort"); G.forts.add(k); log(`나: 요새 건설 (곡식 -${buildCost(n, "fort")})`); endAction(n, false); return;
+  }
   if (G.mode === "explore" && G.pending?.has(k)) {
     G.mode = null; G.pending = null; G.busy = true; banner(null); await doExplore(n, k); G.busy = false; endAction(n, true); return;
   }
@@ -644,15 +679,27 @@ cv.addEventListener("click", async e => {
   }
   if (G.mode === "moveTo" && !G.reach?.has(k)) return banner("밝은 칸 중에서 고르세요 · 빨간 테두리 = 전투 · Esc = 취소");
   if (G.mode === "moveTo" && G.reach?.has(k)) {
-    const s = G.sel; G.mode = null; G.sel = null; G.busy = true; banner(null);
+    const s = G.sel; G.mode = null; G.sel = null; G.splitFrom = null; G.busy = true; banner(null);
     if (G.demonMove) await demonMoveTo(s, k); else await doMove(n, s, G.steps, k);
     G.busy = false; G.reach = null;
     if (G.demonMove) { G.actionsLeft--; render(); } else endAction(n, false);
   }
 });
 function banner(text) { const b = $("banner"); b.hidden = !text; if (text) b.textContent = text; }
-function rollMove(s) {
+async function rollMove(s) {
   const n = me();
+  // 군대 나누기: 보낼 수를 고르고 나머지는 제자리에 남는다
+  if (s.n > 1) {
+    const v = await modal(`<h3>보낼 군대 수</h3><p>이 칸의 군대 ${s.n}명 중 몇 명을 보낼까? 나머지는 이 칸에 남는다. 이동 주사위는 보내는 군대 수만큼(최대 ${RULES.maxMoveDice}개).</p>
+      <input id="splitN" type="number" min="1" max="${s.n}" value="${s.n}"> <span class="muted">/ ${s.n}명</span>`, [["취소", 0], ["보내기", 1, "primary"]]);
+    if (!v) { G.mode = null; banner(null); return; }
+    const k = Math.max(1, Math.min(s.n, Math.floor(+$("splitN").value) || s.n));
+    if (k < s.n) {
+      const arr = G.demonMove ? G.demon.zombies : n.stacks;
+      const part = { id: G.nextStackId++, pos: s.pos, n: k };
+      s.n -= k; arr.push(part); G.splitFrom = s; s = part;
+    }
+  }
   {
     const dice = [...Array(moveDice(G.demonMove ? { race: "" } : n, s))].map(d6);
     const steps = dice.reduce((a, b) => a + b, 0);
@@ -711,11 +758,15 @@ async function aiAct(n) {
     t.sort((a, b) => ("FKU".indexOf(ter(b)) - "FKU".indexOf(ter(a))) || Math.random() - .5);
     await doExplore(n, t[0]); return endAction(n, true);
   }
-  // 3) 양성
+  // 3) 배: 3년째부터, 바닷가 땅이 있으면
+  if (!n.ship && n.race !== "심해족" && G.year >= 3 && coastal(n) && n.grain >= buildCost(n, "ship") + 4) {
+    n.grain -= buildCost(n, "ship"); n.ship = true; log(`${n.name}: 배·항구 건설`); return endAction(n, false);
+  }
+  // 4) 양성
   if (canTrain(n) && n.grain >= RULES.trainCost * 2 && n.grain >= 0) {
     doTrain(n, Math.max(1, Math.floor(n.grain * 0.6 / RULES.trainCost))); return endAction(n, false);
   }
-  // 4) 상점
+  // 5) 상점
   if (shopOpen(n) && n.grain >= shopPrice() + 4 && n.hand.length < 3) { n.grain -= shopPrice(); n.hand.push(draw("tactics")); log(`${n.name}: 상점에서 전술 카드 구입`); return endAction(n, false); }
   // 5) 큰 군대를 가장 가까운 적 쪽으로
   const s = n.stacks.slice().sort((a, b) => b.n - a.n)[0];
@@ -818,7 +869,7 @@ async function eventZombiesTurn() {
   for (const z of G.eventZombies.slice()) {
     const alive = G.nations.filter(n => n.alive); if (!alive.length) return;
     const goal = alive.map(n => n.castle).sort((a, b) => dist(a, z.pos) - dist(b, z.pos))[0];
-    const step = neighbors(z.pos).filter(passable).sort((a, b) => dist(a, goal) - dist(b, goal))[0];
+    const step = neighbors(z.pos).filter(k => passable(k, "event")).sort((a, b) => dist(a, goal) - dist(b, goal))[0];
     if (step === undefined) continue;
     const st = stackAt(step);
     const castle = G.nations.some(n => n.alive && n.castle === step);

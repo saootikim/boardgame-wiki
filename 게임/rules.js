@@ -20,6 +20,8 @@ const RULES = {
   curseCardsPerYear: 2,
   curse: { harvest: 4, plague: 6, grave: 6, march: 2 },
   native: [4, 4, 4, 4], nativeArmy: 3, nativeMerchantCost: 3, nativeFriendlyGrain: 2,
+  fortCost: 20,              // 요새 (드워프 절반). 방어 효과는 미정, 지금은 농성 카드 조건으로만 쓰임
+  shipCost: 5,               // 배·항구 (임시). 있으면 바다를 건너고 바다 탐사 1칸
   shopPrice: 3,              // 상점 전술 카드 값 (게임에서 정함)
   templeMax: 10,
   hegemonRatio: 2,
