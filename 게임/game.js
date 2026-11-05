@@ -105,8 +105,12 @@ function render() {
     if (o !== undefined) { ctx.globalAlpha = .45; ctx.fillStyle = G.nations[o].color; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); ctx.globalAlpha = 1; }
   }
   if (G.reach) {
-    ctx.fillStyle = "rgba(255,255,255,.35)";
-    for (const k of G.reach.keys()) { const [x, y] = xy(k); ctx.fillRect(x * CELL + 3, y * CELL + 3, CELL - 6, CELL - 6); }
+    for (const [k, kind] of G.reach) {
+      const [x, y] = xy(k);
+      ctx.fillStyle = kind === "fight" ? "rgba(255,60,60,.55)" : "rgba(255,235,59,.45)";
+      ctx.fillRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4);
+      if (kind === "fight") { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 3; ctx.strokeRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2); }
+    }
   }
   if (G.mode === "explore" && G.pending) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
@@ -570,14 +574,19 @@ function humanAction(id) {
   if (G.turn !== n || G.actionsLeft <= 0 || G.busy) return;
   cancelMode();
   if (n === G.demonPlayer) {
-    if (id === "move") { G.mode = "moveSel"; G.demonMove = true; log("움직일 좀비 무리를 지도에서 누른다.", "hint"); }
+    if (id === "move") {
+      if (!G.demon.zombies.length) return log("움직일 좀비가 없다.", "hint");
+      G.mode = "moveSel"; G.demonMove = true;
+      if (G.demon.zombies.length === 1) return rollMove(G.demon.zombies[0]);
+      banner("움직일 좀비 무리를 누르세요");
+    }
     if (id === "rest") { G.actionsLeft--; render(); }
     return;
   }
   if (id === "explore") {
     const t = exploreTargets(n);
     if (!t.length) return log("탐사할 수 있는 칸이 없다 (정복도 부족 또는 지진).", "hint");
-    G.mode = "explore"; G.pending = new Set(t); log("흰 테두리 칸 중 탐사할 칸을 누른다.", "hint"); render();
+    G.mode = "explore"; G.pending = new Set(t); banner("흰 테두리 칸 중 탐사할 칸을 누르세요 · Esc = 취소"); render();
   } else if (id === "train") {
     if (n.grain < 0) return log("빚이 있어서 군대를 뽑을 수 없다.", "hint");
     if (!canTrain(n)) return log("지금은 군대를 뽑을 수 없다 (곡식 부족, 보급 차단, 또는 성에 적이 있음).", "hint");
@@ -589,7 +598,9 @@ function humanAction(id) {
     });
   } else if (id === "move") {
     if (!n.stacks.length) return log("움직일 군대가 없다.", "hint");
-    G.mode = "moveSel"; G.demonMove = false; log("움직일 내 군대를 지도에서 누른다.", "hint");
+    G.mode = "moveSel"; G.demonMove = false;
+    if (n.stacks.length === 1) return rollMove(n.stacks[0]);
+    banner("움직일 내 군대(숫자 동그라미)를 누르세요");
   } else if (id === "temple") {
     const s = n.stacks.find(t => ter(t.pos) === "S");
     if (!s) return log("신전 칸에 내 군대가 있어야 한다.", "hint");
@@ -603,7 +614,7 @@ function humanAction(id) {
     n.grain -= shopPrice(); const c = draw("tactics"); n.hand.push(c); log(`나: 상점에서 ${c} 구입`); endAction(n, false);
   } else if (id === "rest") { log("나: 쉼"); endAction(n, false); }
 }
-function cancelMode() { G.mode = null; G.pending = null; G.reach = null; G.sel = null; render(); }
+function cancelMode() { G.mode = null; G.pending = null; G.reach = null; G.sel = null; banner(null); render(); }
 cv.addEventListener("mousemove", e => {
   const r = cv.getBoundingClientRect();
   const x = Math.floor((e.clientX - r.left) / r.width * W), y = Math.floor((e.clientY - r.top) / r.height * H);
@@ -623,25 +634,34 @@ cv.addEventListener("click", async e => {
     G.mode = null; $("banner").hidden = true; G.castleResolve(best); return;
   }
   if (G.mode === "explore" && G.pending?.has(k)) {
-    G.mode = null; G.pending = null; G.busy = true; await doExplore(n, k); G.busy = false; endAction(n, true); return;
+    G.mode = null; G.pending = null; G.busy = true; banner(null); await doExplore(n, k); G.busy = false; endAction(n, true); return;
   }
   if (G.mode === "moveSel") {
     const arr = G.demonMove ? G.demon.zombies : n.stacks;
-    const s = arr.find(t => t.pos === k);
-    if (!s) return;
-    const dice = [...Array(moveDice(G.demonMove ? { race: "" } : n, s))].map(d6);
-    const steps = dice.reduce((a, b) => a + b, 0);
-    G.sel = s; G.reach = reachable(G.demonMove ? "demon" : n, s, steps); G.mode = "moveTo"; G.steps = steps;
-    log(`이동 주사위 ${dice.join("+")} = ${steps}칸. 밝은 칸 중 갈 곳을 누른다 (적이 있는 칸 = 전투).`, "hint");
-    render(); return;
+    const s = arr.slice().sort((a, b) => dist(a.pos, k) - dist(b.pos, k)).find(t => dist(t.pos, k) <= 2);
+    if (!s) return banner("내 군대(숫자 동그라미) 근처를 누르세요");
+    rollMove(s); return;
   }
+  if (G.mode === "moveTo" && !G.reach?.has(k)) return banner("밝은 칸 중에서 고르세요 · 빨간 테두리 = 전투 · Esc = 취소");
   if (G.mode === "moveTo" && G.reach?.has(k)) {
-    const s = G.sel; G.mode = null; G.sel = null; G.busy = true;
+    const s = G.sel; G.mode = null; G.sel = null; G.busy = true; banner(null);
     if (G.demonMove) await demonMoveTo(s, k); else await doMove(n, s, G.steps, k);
     G.busy = false; G.reach = null;
     if (G.demonMove) { G.actionsLeft--; render(); } else endAction(n, false);
   }
 });
+function banner(text) { const b = $("banner"); b.hidden = !text; if (text) b.textContent = text; }
+function rollMove(s) {
+  const n = me();
+  {
+    const dice = [...Array(moveDice(G.demonMove ? { race: "" } : n, s))].map(d6);
+    const steps = dice.reduce((a, b) => a + b, 0);
+    G.sel = s; G.reach = reachable(G.demonMove ? "demon" : n, s, steps); G.mode = "moveTo"; G.steps = steps;
+    log(`이동 주사위 ${dice.join("+")} = ${steps}칸.`, "hint");
+    banner(`주사위 ${dice.join("+")} = ${steps}칸 · 밝은 칸을 눌러 이동 · 빨간 테두리 = 전투 · Esc = 취소`);
+    render();
+  }
+}
 document.addEventListener("keydown", e => { if (e.key === "Escape") cancelMode(); });
 
 async function humanTurn(n) {
